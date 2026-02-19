@@ -1,8 +1,13 @@
 import wx
 import os
+import threading
+import wx.lib.newevent
 from modules.search_engine import search_youtube
 from modules.player import play_video
 from modules.downloader import download_media
+
+# Define a custom event for progress updates using the modern way
+DownloadEvent, EVT_DOWNLOAD_UPDATE = wx.lib.newevent.NewEvent()
 
 class TeTubeFrame(wx.Frame):
     def __init__(self):
@@ -151,8 +156,94 @@ class TeTubeFrame(wx.Frame):
         selection = self.result_list.GetSelection()
         if selection != wx.NOT_FOUND:
             video_url = self.results[selection]['url']
-            download_media(video_url, fmt)
-            wx.MessageBox(f"Download started for: {self.results[selection]['title']}\nFormat: {fmt}\nCheck the 'download' folder.", "Download Started")
+            title = self.results[selection]['title']
+            
+            dialog = DownloadProgressDialog(self, title, video_url, fmt)
+            dialog.Show()
+
+class DownloadThread(threading.Thread):
+    def __init__(self, win, url, fmt):
+        super().__init__()
+        self.win = win
+        self.url = url
+        self.fmt = fmt
+        self.daemon = True
+
+    def run(self):
+        try:
+            def callback(p):
+                wx.PostEvent(self.win, DownloadEvent(**p))
+            
+            final_path = download_media(self.url, self.fmt, callback)
+            wx.PostEvent(self.win, DownloadEvent(status='finished', path=final_path))
+        except Exception as e:
+            wx.PostEvent(self.win, DownloadEvent(status='error', error=str(e)))
+
+class DownloadProgressDialog(wx.Dialog):
+    def __init__(self, parent, title, url, fmt):
+        super().__init__(parent, title="Downloading...", size=(400, 180))
+        self.video_title = title
+        self.last_percent = -1
+        
+        panel = wx.Panel(self)
+        self.vbox = wx.BoxSizer(wx.VERTICAL)
+        
+        self.title_label = wx.StaticText(panel, label=f"Downloading: {title}")
+        self.set_accessible_name(self.title_label, f"Downloading: {title}")
+        
+        self.gauge = wx.Gauge(panel, range=100, size=(350, 25))
+        self.set_accessible_name(self.gauge, "Download progress")
+        
+        self.status_label = wx.StaticText(panel, label="Initializing...")
+        self.set_accessible_name(self.status_label, "Status: Initializing")
+        
+        self.vbox.Add(self.title_label, 0, wx.ALL | wx.EXPAND, 10)
+        self.vbox.Add(self.gauge, 0, wx.ALL | wx.EXPAND, 10)
+        self.vbox.Add(self.status_label, 0, wx.ALL | wx.EXPAND, 10)
+        
+        panel.SetSizer(self.vbox)
+        self.Centre()
+        
+        self.Bind(EVT_DOWNLOAD_UPDATE, self.on_update)
+        
+        self.thread = DownloadThread(self, url, fmt)
+        self.thread.start()
+
+    def set_accessible_name(self, control, name):
+        """Safely sets the accessible name for a control."""
+        control.SetName(name)
+        acc = control.GetAccessible()
+        if acc:
+            acc.SetName(name)
+
+    def on_update(self, event):
+        status = event.status
+        
+        if status == 'downloading':
+            percent = int(event.percent)
+            if percent != self.last_percent:
+                self.gauge.SetValue(percent)
+                self.last_percent = percent
+            
+            # Clean up the status line (remove [download])
+            clean_status = event.line.replace('[download]', '').strip()
+            self.status_label.SetLabel(clean_status)
+            # AVOID set_accessible_name on every tick as it's expensive and causes freeze
+            
+        elif status == 'finished':
+            self.gauge.SetValue(100)
+            self.status_label.SetLabel("Download Complete!")
+            # Final accessibility update when finished is okay
+            self.set_accessible_name(self.status_label, "Status: Download Complete")
+            
+            path = event.path or "Unknown location"
+            wx.MessageBox(f"Download complete!\nFile saved at: {path}", "Success", wx.OK | wx.ICON_INFORMATION)
+            self.Destroy()
+            
+        elif status == 'error':
+            error_msg = event.error or "Unknown error"
+            wx.MessageBox(f"Download failed: {error_msg}", "Error", wx.OK | wx.ICON_ERROR)
+            self.Destroy()
 
 def start_gui():
     app = wx.App()
