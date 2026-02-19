@@ -11,6 +11,9 @@ class TeTubeFrame(wx.Frame):
         self.results = []
         self.init_ui()
         self.Centre()
+        
+        # Use CHAR_HOOK for global hotkeys like Enter
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_key_down)
 
     def set_accessible_name(self, control, name):
         """Safely sets the accessible name for a control."""
@@ -59,7 +62,6 @@ class TeTubeFrame(wx.Frame):
         self.result_list = wx.ListBox(self.search_tab, style=wx.LB_SINGLE)
         self.result_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_play)
         self.result_list.Bind(wx.EVT_CONTEXT_MENU, self.on_context_menu)
-        self.result_list.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
         
         # Accessibility for list box
         self.set_accessible_name(self.result_list, "Search Results")
@@ -102,10 +104,24 @@ class TeTubeFrame(wx.Frame):
 
     def on_key_down(self, event):
         keycode = event.GetKeyCode()
-        if keycode == wx.WXK_RETURN:
-            self.on_play(None)
-        else:
-            event.Skip()
+        if keycode in [wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER]:
+            # Trigger play only if search box is NOT focused
+            # OR if focus is in result_list
+            focused = wx.Window.FindFocus()
+            if focused != self.search_input:
+                self.on_play(None)
+                return # Don't Skip() if we handle it
+        
+        event.Skip()
+
+    def on_copy_link(self, event):
+        selection = self.result_list.GetSelection()
+        if selection != wx.NOT_FOUND:
+            video_url = self.results[selection]['url']
+            if wx.TheClipboard.Open():
+                wx.TheClipboard.SetData(wx.TextDataObject(video_url))
+                wx.TheClipboard.Close()
+                wx.MessageBox("Link copied to clipboard!", "Success", wx.OK | wx.ICON_INFORMATION)
 
     def on_context_menu(self, event):
         selection = self.result_list.GetSelection()
@@ -113,8 +129,11 @@ class TeTubeFrame(wx.Frame):
             return
 
         menu = wx.Menu()
-        play_item = menu.Append(wx.ID_ANY, "&Play")
+        play_item = menu.Append(wx.ID_ANY, "&Play\tEnter")
         self.Bind(wx.EVT_MENU, self.on_play, play_item)
+
+        copy_item = menu.Append(wx.ID_ANY, "&Copy Link")
+        self.Bind(wx.EVT_MENU, self.on_copy_link, copy_item)
 
         download_menu = wx.Menu()
         formats = [("MP4 Video", "mp4"), ("M4A Audio", "m4a"), ("MP3 Audio", "mp3"), ("WAV Audio", "wav")]
