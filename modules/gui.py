@@ -41,13 +41,13 @@ class TeTubeFrame(wx.Frame):
         # Tab control
         self.notebook = wx.Notebook(panel)
         self.search_tab = wx.Panel(self.notebook)
-        self.play_tab = wx.Panel(self.notebook)
+        self.process_link_tab = wx.Panel(self.notebook)
         
         self.notebook.AddPage(self.search_tab, "Search")
-        self.notebook.AddPage(self.play_tab, "Play")
+        self.notebook.AddPage(self.process_link_tab, "Process via link")
 
         self.setup_search_tab()
-        self.setup_play_tab()
+        self.setup_process_link_tab()
 
         vbox.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
         panel.SetSizer(vbox)
@@ -85,13 +85,13 @@ class TeTubeFrame(wx.Frame):
         vbox.Add(self.result_list, 1, wx.EXPAND | wx.ALL, 5)
         self.search_tab.SetSizer(vbox)
 
-    def setup_play_tab(self):
+    def setup_process_link_tab(self):
         vbox = wx.BoxSizer(wx.VERTICAL)
         
         # Link input box
         hbox1 = wx.BoxSizer(wx.HORIZONTAL)
-        link_label = wx.StaticText(self.play_tab, label="Enter link video:")
-        self.link_input = wx.TextCtrl(self.play_tab, style=wx.TE_PROCESS_ENTER)
+        link_label = wx.StaticText(self.process_link_tab, label="Enter link video:")
+        self.link_input = wx.TextCtrl(self.process_link_tab, style=wx.TE_PROCESS_ENTER)
         self.link_input.SetHint("Paste YouTube link here...")
         
         # Accessibility for link input
@@ -104,11 +104,11 @@ class TeTubeFrame(wx.Frame):
         # Action buttons
         hbox2 = wx.BoxSizer(wx.HORIZONTAL)
         
-        play_button = wx.Button(self.play_tab, label="Play")
+        play_button = wx.Button(self.process_link_tab, label="Play")
         play_button.Bind(wx.EVT_BUTTON, self.on_play_link)
         self.set_accessible_name(play_button, "Play")
         
-        download_button = wx.Button(self.play_tab, label="Download")
+        download_button = wx.Button(self.process_link_tab, label="Download")
         download_button.Bind(wx.EVT_BUTTON, self.on_download_link)
         self.set_accessible_name(download_button, "Download")
         
@@ -116,7 +116,7 @@ class TeTubeFrame(wx.Frame):
         hbox2.Add(download_button, 1, wx.ALL | wx.EXPAND, 5)
         vbox.Add(hbox2, 0, wx.EXPAND | wx.ALL, 5)
         
-        self.play_tab.SetSizer(vbox)
+        self.process_link_tab.SetSizer(vbox)
 
     def on_search(self, event):
         query = self.search_input.GetValue()

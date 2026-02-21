@@ -18,7 +18,7 @@ def search_youtube(query, max_results=20):
     ]
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace')
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         videos = []
         for line in result.stdout.splitlines():
             if line.strip():
