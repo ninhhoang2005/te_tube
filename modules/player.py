@@ -16,12 +16,12 @@ def play_video(url):
     # Simpler: yt-dlp -g <url> gets the stream URL
     try:
         cmd_get_url = [YTDLP_PATH, "-g", "-f", "best", url]
-        stream_url = subprocess.check_output(cmd_get_url, text=True, encoding='utf-8', errors='replace').strip()
+        stream_url = subprocess.check_output(cmd_get_url, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW).strip()
         
         # Now play with ffplay
         # -nodisp if we wanted audio only, but ffplay by default shows video if available.
         # User said "play", so we use ffplay.
-        subprocess.Popen([FFPLAY_PATH, "-autoexit", stream_url])
+        subprocess.Popen([FFPLAY_PATH, "-autoexit", stream_url], creationflags=subprocess.CREATE_NO_WINDOW)
     except Exception as e:
         print(f"Error playing video: {e}")
 

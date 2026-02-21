@@ -1,6 +1,7 @@
 import wx
 import os
 import threading
+import re
 import wx.lib.newevent
 from modules.search_engine import search_youtube
 from modules.player import play_video
@@ -14,11 +15,17 @@ class TeTubeFrame(wx.Frame):
         super().__init__(parent=None, title="Te_Tube - YouTube Search & Download", size=(800, 600))
         
         self.results = []
+        self.last_clipboard_text = ""
         self.init_ui()
         self.Centre()
         
         # Use CHAR_HOOK for global hotkeys like Enter
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_down)
+
+        # Clipboard monitor timer
+        self.clipboard_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.on_check_clipboard, self.clipboard_timer)
+        self.clipboard_timer.Start(1000) # Check every 1 second
 
     def set_accessible_name(self, control, name):
         """Safely sets the accessible name for a control."""
@@ -34,9 +41,13 @@ class TeTubeFrame(wx.Frame):
         # Tab control
         self.notebook = wx.Notebook(panel)
         self.search_tab = wx.Panel(self.notebook)
+        self.play_tab = wx.Panel(self.notebook)
+        
         self.notebook.AddPage(self.search_tab, "Search")
+        self.notebook.AddPage(self.play_tab, "Play")
 
         self.setup_search_tab()
+        self.setup_play_tab()
 
         vbox.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
         panel.SetSizer(vbox)
@@ -74,6 +85,39 @@ class TeTubeFrame(wx.Frame):
         vbox.Add(self.result_list, 1, wx.EXPAND | wx.ALL, 5)
         self.search_tab.SetSizer(vbox)
 
+    def setup_play_tab(self):
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        
+        # Link input box
+        hbox1 = wx.BoxSizer(wx.HORIZONTAL)
+        link_label = wx.StaticText(self.play_tab, label="Enter link video:")
+        self.link_input = wx.TextCtrl(self.play_tab, style=wx.TE_PROCESS_ENTER)
+        self.link_input.SetHint("Paste YouTube link here...")
+        
+        # Accessibility for link input
+        self.set_accessible_name(self.link_input, "Enter link video")
+        
+        hbox1.Add(link_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        hbox1.Add(self.link_input, 1, wx.EXPAND | wx.ALL, 5)
+        vbox.Add(hbox1, 0, wx.EXPAND | wx.ALL, 10)
+        
+        # Action buttons
+        hbox2 = wx.BoxSizer(wx.HORIZONTAL)
+        
+        play_button = wx.Button(self.play_tab, label="Play")
+        play_button.Bind(wx.EVT_BUTTON, self.on_play_link)
+        self.set_accessible_name(play_button, "Play")
+        
+        download_button = wx.Button(self.play_tab, label="Download")
+        download_button.Bind(wx.EVT_BUTTON, self.on_download_link)
+        self.set_accessible_name(download_button, "Download")
+        
+        hbox2.Add(play_button, 1, wx.ALL | wx.EXPAND, 5)
+        hbox2.Add(download_button, 1, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(hbox2, 0, wx.EXPAND | wx.ALL, 5)
+        
+        self.play_tab.SetSizer(vbox)
+
     def on_search(self, event):
         query = self.search_input.GetValue()
         if not query:
@@ -102,10 +146,20 @@ class TeTubeFrame(wx.Frame):
         selection = self.result_list.GetSelection()
         if selection != wx.NOT_FOUND:
             video_url = self.results[selection]['url']
-            try:
-                play_video(video_url)
-            except Exception as e:
-                wx.MessageBox(f"Error playing video: {e}", "Playback Error", wx.OK | wx.ICON_ERROR)
+            self.play_url(video_url)
+
+    def on_play_link(self, event):
+        url = self.link_input.GetValue().strip()
+        if not url:
+            wx.MessageBox("Please enter a video link first.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+        self.play_url(url)
+
+    def play_url(self, url):
+        try:
+            play_video(url)
+        except Exception as e:
+            wx.MessageBox(f"Error playing video: {e}", "Playback Error", wx.OK | wx.ICON_ERROR)
 
     def on_key_down(self, event):
         keycode = event.GetKeyCode()
@@ -119,6 +173,59 @@ class TeTubeFrame(wx.Frame):
         
         event.Skip()
 
+    def on_check_clipboard(self, event):
+        if not wx.TheClipboard.Open():
+            return
+
+        text_data = wx.TextDataObject()
+        success = wx.TheClipboard.GetData(text_data)
+        wx.TheClipboard.Close()
+
+        if success:
+            clipboard_text = text_data.GetText().strip()
+            if clipboard_text and clipboard_text != self.last_clipboard_text:
+                # Suppress dialog if user is currently typing/pasting into a text field
+                focused = wx.Window.FindFocus()
+                if isinstance(focused, wx.TextCtrl):
+                    self.last_clipboard_text = clipboard_text
+                    return
+
+                # Improved regex to catch m.youtube, music.youtube, and various path formats
+                youtube_regex = r'(https?://)?(www\.|m\.|music\.)?(youtube\.com|youtu\.be)/(watch\?v=|embed/|v/|shorts/)?([a-zA-Z0-9_-]{11})'
+                if re.search(youtube_regex, clipboard_text):
+                    self.last_clipboard_text = clipboard_text
+                    # Show detection dialog
+                    self.show_link_detected_dialog(clipboard_text)
+                else:
+                    # Update even if it's not a link to avoid checking again
+                    self.last_clipboard_text = clipboard_text
+
+    def show_link_detected_dialog(self, url):
+        # We need to make sure we don't open multiple dialogs if one is already open
+        # Since it's a modal dialog, it blocks the timer if shown as ShowModal
+        
+        dialog = LinkDetectedDialog(self, url)
+        result = dialog.ShowModal()
+        
+        if result == wx.ID_YES: # Play
+            self.play_url(url)
+        elif result == wx.ID_SAVE: # Download (using ID_SAVE as a placeholder for Download)
+            self.on_download_link_from_url(url)
+        
+        dialog.Destroy()
+
+    def on_download_link_from_url(self, url):
+        # Create a simple menu for format selection
+        menu = wx.Menu()
+        formats = [("MP4 Video", "mp4"), ("M4A Audio", "m4a"), ("MP3 Audio", "mp3"), ("WAV Audio", "wav")]
+        
+        for label, fmt in formats:
+            item = menu.Append(wx.ID_ANY, label)
+            self.Bind(wx.EVT_MENU, lambda evt, f=fmt: self.start_download(url, "Video from clipboard", f), item)
+        
+        self.PopupMenu(menu)
+        menu.Destroy()
+
     def on_copy_link(self, event):
         selection = self.result_list.GetSelection()
         if selection != wx.NOT_FOUND:
@@ -126,6 +233,8 @@ class TeTubeFrame(wx.Frame):
             if wx.TheClipboard.Open():
                 wx.TheClipboard.SetData(wx.TextDataObject(video_url))
                 wx.TheClipboard.Close()
+                # Update last_clipboard_text to prevent Te_Tube from detecting its own copy
+                self.last_clipboard_text = video_url
                 wx.MessageBox("Link copied to clipboard!", "Success", wx.OK | wx.ICON_INFORMATION)
 
     def on_context_menu(self, event):
@@ -157,9 +266,28 @@ class TeTubeFrame(wx.Frame):
         if selection != wx.NOT_FOUND:
             video_url = self.results[selection]['url']
             title = self.results[selection]['title']
-            
-            dialog = DownloadProgressDialog(self, title, video_url, fmt)
-            dialog.Show()
+            self.start_download(video_url, title, fmt)
+
+    def on_download_link(self, event):
+        url = self.link_input.GetValue().strip()
+        if not url:
+            wx.MessageBox("Please enter a video link first.", "Error", wx.OK | wx.ICON_WARNING)
+            return
+        
+        # Create a simple menu for format selection
+        menu = wx.Menu()
+        formats = [("MP4 Video", "mp4"), ("M4A Audio", "m4a"), ("MP3 Audio", "mp3"), ("WAV Audio", "wav")]
+        
+        for label, fmt in formats:
+            item = menu.Append(wx.ID_ANY, label)
+            self.Bind(wx.EVT_MENU, lambda evt, f=fmt: self.start_download(url, "Video from link", f), item)
+        
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    def start_download(self, url, title, fmt):
+        dialog = DownloadProgressDialog(self, title, url, fmt)
+        dialog.Show()
 
 class DownloadThread(threading.Thread):
     def __init__(self, win, url, fmt):
@@ -244,6 +372,42 @@ class DownloadProgressDialog(wx.Dialog):
             error_msg = event.error or "Unknown error"
             wx.MessageBox(f"Download failed: {error_msg}", "Error", wx.OK | wx.ICON_ERROR)
             self.Destroy()
+
+class LinkDetectedDialog(wx.Dialog):
+    def __init__(self, parent, url):
+        super().__init__(parent, title="Link Detected", size=(500, 200))
+        
+        panel = wx.Panel(self)
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        
+        label = wx.StaticText(panel, label=f"We detected a video link in your clipboard:\n\n{url}")
+        label.Wrap(450)
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        
+        play_btn = wx.Button(panel, label="Play")
+        play_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_YES))
+        
+        download_btn = wx.Button(panel, label="Download")
+        download_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_SAVE))
+        
+        cancel_btn = wx.Button(panel, label="Cancel")
+        cancel_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL))
+        
+        hbox.Add(play_btn, 1, wx.ALL | wx.EXPAND, 5)
+        hbox.Add(download_btn, 1, wx.ALL | wx.EXPAND, 5)
+        hbox.Add(cancel_btn, 1, wx.ALL | wx.EXPAND, 5)
+        
+        vbox.Add(label, 1, wx.ALL | wx.EXPAND, 15)
+        vbox.Add(hbox, 0, wx.ALL | wx.EXPAND, 10)
+        
+        panel.SetSizer(vbox)
+        self.Centre()
+        
+        # Accessibility
+        parent.set_accessible_name(play_btn, "Play video from clipboard")
+        parent.set_accessible_name(download_btn, "Download video from clipboard")
+        parent.set_accessible_name(cancel_btn, "Cancel and return to main interface")
 
 def start_gui():
     app = wx.App()

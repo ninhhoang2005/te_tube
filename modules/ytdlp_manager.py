@@ -32,7 +32,7 @@ def download_ytdlp():
 def update_ytdlp():
     try:
         # Run yt-dlp -U to update itself
-        subprocess.run([YTDLP_PATH, "-U"], check=True, encoding='utf-8', errors='replace')
+        subprocess.run([YTDLP_PATH, "-U"], check=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         print("yt-dlp.exe is up to date.")
     except Exception as e:
         print(f"Error updating yt-dlp.exe: {e}")
